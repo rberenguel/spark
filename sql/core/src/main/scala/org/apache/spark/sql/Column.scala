@@ -150,6 +150,8 @@ class Column(val expr: Expression) extends Logging {
   /** Creates a column based on the given expression. */
   private def withExpr(newExpr: Expression): Column = new Column(newExpr)
 
+  private def withExpr(newExpr: NamedExpression): Column = new Column(newExpr)
+
   /**
    * Returns the expression for this column either with an existing or auto assigned name.
    */
@@ -161,7 +163,10 @@ class Column(val expr: Expression) extends Logging {
 
     case u: UnresolvedExtractValue => UnresolvedAlias(u)
 
-    case expr: NamedExpression => expr
+    case expr: NamedExpression => {
+      println(s"This becomes a NamedExpression: $expr")
+      expr
+    }
 
     // Leave an unaliased generator with an empty list of names since the analyzer will generate
     // the correct defaults after the nested expression's type has been resolved.
@@ -185,7 +190,10 @@ class Column(val expr: Expression) extends Logging {
     // Wait until the struct is resolved. This will generate a nicer looking alias.
     case struct: CreateNamedStructLike => UnresolvedAlias(struct)
 
-    case expr: Expression => Alias(expr, toPrettySQL(expr))()
+    case expr: Expression => {
+      println(s"We have ended in a bare expression case with $expr")
+      Alias(expr, toPrettySQL(expr))()
+    }
   }
 
   /**
