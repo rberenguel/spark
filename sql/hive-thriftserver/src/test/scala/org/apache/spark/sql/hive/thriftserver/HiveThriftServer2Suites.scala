@@ -280,7 +280,7 @@ class HiveThriftBinaryServerSuite extends HiveThriftJdbcTest {
     var defaultV2: String = null
     var data: ArrayBuffer[Int] = null
 
-    withMultipleConnectionJdbcStatement("test_map")(
+    withMultipleConnectionJdbcStatement("test_map", "db1.test_map2")(
       // create table
       { statement =>
 
@@ -295,7 +295,7 @@ class HiveThriftBinaryServerSuite extends HiveThriftJdbcTest {
         val plan = statement.executeQuery("explain select * from test_table")
         plan.next()
         plan.next()
-        assert(plan.getString(1).contains("InMemoryTableScan"))
+        assert(plan.getString(1).contains("Scan In-memory table `test_table`"))
 
         val rs1 = statement.executeQuery("SELECT key FROM test_table ORDER BY KEY DESC")
         val buf1 = new collection.mutable.ArrayBuffer[Int]()
@@ -381,7 +381,7 @@ class HiveThriftBinaryServerSuite extends HiveThriftJdbcTest {
         val plan = statement.executeQuery("explain select key from test_map ORDER BY key DESC")
         plan.next()
         plan.next()
-        assert(plan.getString(1).contains("InMemoryTableScan"))
+        assert(plan.getString(1).contains("Scan In-memory table `test_table`"))
 
         val rs = statement.executeQuery("SELECT key FROM test_map ORDER BY KEY DESC")
         val buf = new collection.mutable.ArrayBuffer[Int]()
@@ -812,6 +812,22 @@ abstract class HiveThriftJdbcTest extends HiveThriftServer2Test {
     } finally {
       tableNames.foreach { name =>
         statements(0).execute(s"DROP TABLE IF EXISTS $name")
+      }
+      statements.foreach(_.close())
+      connections.foreach(_.close())
+    }
+  }
+
+  def withDatabase(dbNames: String*)(fs: (Statement => Unit)*) {
+    val user = System.getProperty("user.name")
+    val connections = fs.map { _ => DriverManager.getConnection(jdbcUri, user, "") }
+    val statements = connections.map(_.createStatement())
+
+    try {
+      statements.zip(fs).foreach { case (s, f) => f(s) }
+    } finally {
+      dbNames.foreach { name =>
+        statements(0).execute(s"DROP DATABASE IF EXISTS $name")
       }
       statements.foreach(_.close())
       connections.foreach(_.close())

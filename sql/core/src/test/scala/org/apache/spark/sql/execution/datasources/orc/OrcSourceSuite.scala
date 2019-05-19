@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution.datasources.orc
 
 import java.io.File
+import java.nio.charset.StandardCharsets.UTF_8
 import java.sql.Timestamp
 import java.util.Locale
 
@@ -30,7 +31,8 @@ import org.apache.orc.OrcProto.Stream.Kind
 import org.apache.orc.impl.RecordReaderImpl
 import org.scalatest.BeforeAndAfterAll
 
-import org.apache.spark.sql.Row
+import org.apache.spark.SPARK_VERSION_SHORT
+import org.apache.spark.sql.{Row, SPARK_VERSION_METADATA_KEY}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.util.Utils
@@ -116,7 +118,7 @@ abstract class OrcSuite extends OrcTest with BeforeAndAfterAll {
     }
   }
 
-  protected def testSelectiveDictionaryEncoding(isSelective: Boolean) {
+  protected def testSelectiveDictionaryEncoding(isSelective: Boolean, isHive23: Boolean = false) {
     val tableName = "orcTable"
 
     withTempDir { dir =>
@@ -169,7 +171,7 @@ abstract class OrcSuite extends OrcTest with BeforeAndAfterAll {
           // Hive 0.11 and RLE v2 is introduced in Hive 0.12 ORC with more improvements.
           // For more details, see https://orc.apache.org/specification/
           assert(stripe.getColumns(1).getKind === DICTIONARY_V2)
-          if (isSelective) {
+          if (isSelective || isHive23) {
             assert(stripe.getColumns(2).getKind === DIRECT_V2)
           } else {
             assert(stripe.getColumns(2).getKind === DICTIONARY_V2)
@@ -312,6 +314,22 @@ abstract class OrcSuite extends OrcTest with BeforeAndAfterAll {
       val ts = Timestamp.valueOf("1900-05-05 12:34:56.000789")
       Seq(ts).toDF.write.orc(path.getCanonicalPath)
       checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
+    }
+  }
+
+  test("Write Spark version into ORC file metadata") {
+    withTempPath { path =>
+      spark.range(1).repartition(1).write.orc(path.getCanonicalPath)
+
+      val partFiles = path.listFiles()
+        .filter(f => f.isFile && !f.getName.startsWith(".") && !f.getName.startsWith("_"))
+      assert(partFiles.length === 1)
+
+      val orcFilePath = new Path(partFiles.head.getAbsolutePath)
+      val readerOptions = OrcFile.readerOptions(new Configuration())
+      val reader = OrcFile.createReader(orcFilePath, readerOptions)
+      val version = UTF_8.decode(reader.getMetadataValue(SPARK_VERSION_METADATA_KEY)).toString
+      assert(version === SPARK_VERSION_SHORT)
     }
   }
 }

@@ -32,8 +32,12 @@ import org.apache.spark.sql.types.{StructField, StructType}
 /**
  * A logical plan that evaluates a [[PythonUDF]]
  */
-case class BatchEvalPython(udfs: Seq[PythonUDF], output: Seq[Attribute], child: LogicalPlan)
-  extends UnaryNode
+case class BatchEvalPython(
+    udfs: Seq[PythonUDF],
+    output: Seq[Attribute],
+    child: LogicalPlan) extends UnaryNode {
+  override def producedAttributes: AttributeSet = AttributeSet(output.drop(child.output.length))
+}
 
 /**
  * A physical plan that evaluates a [[PythonUDF]]
@@ -88,6 +92,10 @@ case class BatchEvalPythonExec(udfs: Seq[PythonUDF], output: Seq[Attribute], chi
 
     outputIterator.flatMap { pickedResult =>
       val unpickledBatch = unpickle.loads(pickedResult)
+      // `Opcodes.MEMOIZE` of Protocol 4 (Python 3.4+) will store objects in internal map
+      // of `Unpickler`. This map is cleared when calling `Unpickler.close()`. Pyrolite
+      // doesn't clear it up, so we manually clear it.
+      unpickle.close()
       unpickledBatch.asInstanceOf[java.util.ArrayList[Any]].asScala
     }.map { result =>
       if (udfs.length == 1) {
